@@ -29,6 +29,8 @@ impl TypeUnfolder {
                 }
             }
             Type::Primitive(_) => type_.clone(),
+            Type::Record(_) => todo!(),
+            Type::Variant(_) => todo!(),
         }
     }
 
