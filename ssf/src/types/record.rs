@@ -1,4 +1,4 @@
-use super::type_::Type;
+use super::{type_::Type, unfold::unfold};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Record {
@@ -19,8 +19,7 @@ impl Record {
         self.boxed
     }
 
-    // TODO
-    // pub fn unfold(&self) -> Self {
-    //     unfold(self)
-    // }
+    pub fn unfold(&self) -> Self {
+        unfold(self)
+    }
 }

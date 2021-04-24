@@ -1,20 +1,20 @@
-use super::algebraic_alternative::AlgebraicAlternative;
 use super::expression::Expression;
+use super::variant_alternative::VariantAlternative;
 use crate::types::Type;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AlgebraicCase {
+pub struct VariantCase {
     argument: Arc<Expression>,
-    alternatives: Vec<AlgebraicAlternative>,
+    alternatives: Vec<VariantAlternative>,
     default_alternative: Option<Arc<Expression>>,
 }
 
-impl AlgebraicCase {
+impl VariantCase {
     pub fn new(
         argument: impl Into<Expression>,
-        alternatives: Vec<AlgebraicAlternative>,
+        alternatives: Vec<VariantAlternative>,
         default_alternative: Option<Expression>,
     ) -> Self {
         Self {
@@ -28,7 +28,7 @@ impl AlgebraicCase {
         &self.argument
     }
 
-    pub fn alternatives(&self) -> &[AlgebraicAlternative] {
+    pub fn alternatives(&self) -> &[VariantAlternative] {
         &self.alternatives
     }
 
