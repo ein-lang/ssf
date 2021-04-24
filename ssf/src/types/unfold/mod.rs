@@ -3,25 +3,14 @@ mod type_unfolder;
 use crate::types::*;
 use type_unfolder::TypeUnfolder;
 
-pub(crate) fn unfold(algebraic: &Algebraic) -> Algebraic {
-    Algebraic::with_tags(
-        algebraic
-            .constructors()
+pub(crate) fn unfold(record: &Record) -> Record {
+    Record::new(
+        record
+            .elements()
             .iter()
-            .map(|(tag, constructor)| {
-                (
-                    *tag,
-                    Constructor::new(
-                        constructor
-                            .elements()
-                            .iter()
-                            .map(|type_| canonicalize(&TypeUnfolder::new(algebraic).unfold(type_)))
-                            .collect(),
-                        constructor.is_boxed(),
-                    ),
-                )
-            })
+            .map(|type_| canonicalize(&TypeUnfolder::new(record).unfold(type_)))
             .collect(),
+        record.is_boxed(),
     )
 }
 

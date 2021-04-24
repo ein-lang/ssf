@@ -85,28 +85,16 @@ fn check_expression(
 
             types::Primitive::Boolean.into()
         }
-        Expression::ConstructorApplication(constructor_application) => {
-            let constructor = constructor_application.constructor();
-
-            if constructor_application.arguments().len()
-                != constructor.constructor_type().elements().len()
-            {
+        Expression::RecordConstruction(record) => {
+            if record.elements().len() != record.type_().elements().len() {
                 return Err(TypeCheckError::WrongArgumentsLength(expression.clone()));
             }
 
-            for (argument, element_type) in constructor_application
-                .arguments()
-                .iter()
-                .zip(constructor.constructor_type().elements())
-            {
-                check_equality(&check_expression(argument, variables)?, &element_type)?;
+            for (element, element_type) in record.elements().iter().zip(record.type_().elements()) {
+                check_equality(&check_expression(element, variables)?, &element_type)?;
             }
 
-            constructor_application
-                .constructor()
-                .algebraic_type()
-                .clone()
-                .into()
+            record.type_().clone().into()
         }
         Expression::FunctionApplication(function_application) => {
             let function_type = check_expression(function_application.function(), variables)?
@@ -148,59 +136,17 @@ fn check_expression(
         }
         Expression::Primitive(primitive) => Ok(check_primitive(primitive).into())?,
         Expression::Variable(variable) => check_variable(variable, variables)?,
+        Expression::Variant(_) => Type::Variant,
     })
 }
 
 fn check_case(case: &Case, variables: &HashMap<&str, Type>) -> Result<Type, TypeCheckError> {
     match case {
-        Case::Algebraic(algebraic_case) => {
-            let argument_type = check_expression(algebraic_case.argument(), variables)?;
+        Case::Primitive(case) => {
+            let argument_type = check_expression(case.argument(), variables)?;
             let mut expression_type = None;
 
-            for alternative in algebraic_case.alternatives() {
-                let constructor = alternative.constructor();
-
-                check_equality(
-                    &constructor.algebraic_type().clone().into(),
-                    &argument_type.clone(),
-                )?;
-
-                let mut variables = variables.clone();
-
-                for (name, type_) in alternative
-                    .element_names()
-                    .iter()
-                    .zip(constructor.constructor_type().elements())
-                {
-                    variables.insert(name, type_.clone());
-                }
-
-                let alternative_type = check_expression(alternative.expression(), &variables)?;
-
-                if let Some(expression_type) = &expression_type {
-                    check_equality(&alternative_type, expression_type)?;
-                } else {
-                    expression_type = Some(alternative_type);
-                }
-            }
-
-            if let Some(expression) = algebraic_case.default_alternative() {
-                let alternative_type = check_expression(expression, &variables)?;
-
-                if let Some(expression_type) = &expression_type {
-                    check_equality(&alternative_type, expression_type)?;
-                } else {
-                    expression_type = Some(alternative_type);
-                }
-            }
-
-            expression_type.ok_or_else(|| TypeCheckError::NoAlternativeFound(case.clone()))
-        }
-        Case::Primitive(primitive_case) => {
-            let argument_type = check_expression(primitive_case.argument(), variables)?;
-            let mut expression_type = None;
-
-            for alternative in primitive_case.alternatives() {
+            for alternative in case.alternatives() {
                 check_equality(
                     &check_primitive(alternative.primitive()).into(),
                     &argument_type.clone(),
@@ -215,7 +161,7 @@ fn check_case(case: &Case, variables: &HashMap<&str, Type>) -> Result<Type, Type
                 }
             }
 
-            if let Some(expression) = primitive_case.default_alternative() {
+            if let Some(expression) = case.default_alternative() {
                 let alternative_type = check_expression(expression, &variables)?;
 
                 if let Some(expression_type) = &expression_type {
@@ -225,7 +171,41 @@ fn check_case(case: &Case, variables: &HashMap<&str, Type>) -> Result<Type, Type
                 }
             }
 
-            expression_type.ok_or_else(|| TypeCheckError::NoAlternativeFound(case.clone()))
+            expression_type.ok_or_else(|| TypeCheckError::NoAlternativeFound(case.clone().into()))
+        }
+        Case::Variant(case) => {
+            check_equality(
+                &check_expression(case.argument(), variables)?,
+                &Type::Variant,
+            )?;
+
+            let mut expression_type = None;
+
+            for alternative in case.alternatives() {
+                let mut variables = variables.clone();
+
+                variables.insert(alternative.name(), alternative.type_().clone());
+
+                let alternative_type = check_expression(alternative.expression(), &variables)?;
+
+                if let Some(expression_type) = &expression_type {
+                    check_equality(&alternative_type, expression_type)?;
+                } else {
+                    expression_type = Some(alternative_type);
+                }
+            }
+
+            if let Some(expression) = case.default_alternative() {
+                let alternative_type = check_expression(expression, &variables)?;
+
+                if let Some(expression_type) = &expression_type {
+                    check_equality(&alternative_type, expression_type)?;
+                } else {
+                    expression_type = Some(alternative_type);
+                }
+            }
+
+            expression_type.ok_or_else(|| TypeCheckError::NoAlternativeFound(case.clone().into()))
         }
     }
 }
@@ -559,7 +539,7 @@ mod tests {
                         vec![Definition::new(
                             "f",
                             vec![Argument::new("x", algebraic_type,)],
-                            AlgebraicCase::new(Variable::new("x"), vec![], Some(42.0.into()),),
+                            VariantCase::new(Variable::new("x"), vec![], Some(42.0.into()),),
                             types::Primitive::Float64,
                         )]
                     )),
@@ -579,9 +559,9 @@ mod tests {
                         vec![Definition::new(
                             "f",
                             vec![Argument::new("x", algebraic_type.clone())],
-                            AlgebraicCase::new(
+                            VariantCase::new(
                                 Variable::new("x"),
-                                vec![AlgebraicAlternative::new(
+                                vec![VariantAlternative::new(
                                     Constructor::new(algebraic_type, 0),
                                     vec![],
                                     42.0
@@ -609,9 +589,9 @@ mod tests {
                         vec![Definition::new(
                             "f",
                             vec![Argument::new("x", algebraic_type.clone())],
-                            AlgebraicCase::new(
+                            VariantCase::new(
                                 Variable::new("x"),
-                                vec![AlgebraicAlternative::new(
+                                vec![VariantAlternative::new(
                                     Constructor::new(algebraic_type, 0),
                                     vec!["y".into()],
                                     Variable::new("y")
@@ -636,7 +616,7 @@ mod tests {
                     vec![Definition::new(
                         "f",
                         vec![Argument::new("x", algebraic_type)],
-                        AlgebraicCase::new(Variable::new("x"), vec![], None),
+                        VariantCase::new(Variable::new("x"), vec![], None),
                         types::Primitive::Float64,
                     )],
                 );
@@ -661,15 +641,15 @@ mod tests {
                             "x",
                             types::Algebraic::new(vec![types::Constructor::boxed(vec![])]),
                         )],
-                        AlgebraicCase::new(
+                        VariantCase::new(
                             Variable::new("x"),
                             vec![
-                                AlgebraicAlternative::new(
+                                VariantAlternative::new(
                                     Constructor::new(algebraic_type.clone(), 0),
                                     vec![],
                                     Variable::new("x"),
                                 ),
-                                AlgebraicAlternative::new(
+                                VariantAlternative::new(
                                     Constructor::new(algebraic_type, 0),
                                     vec![],
                                     42.0,
@@ -701,9 +681,9 @@ mod tests {
                             "f",
                             vec![],
                             vec![Argument::new("x", algebraic_type.clone())],
-                            AlgebraicCase::new(
+                            VariantCase::new(
                                 Variable::new("x"),
-                                vec![AlgebraicAlternative::new(
+                                vec![VariantAlternative::new(
                                     Constructor::new(algebraic_type.clone(), 0),
                                     vec!["y".into()],
                                     Variable::new("y"),
@@ -732,9 +712,9 @@ mod tests {
                             "f",
                             vec![],
                             vec![Argument::new("x", algebraic_type)],
-                            AlgebraicCase::new(
+                            VariantCase::new(
                                 Variable::new("x"),
-                                vec![AlgebraicAlternative::new(
+                                vec![VariantAlternative::new(
                                     Constructor::new(other_algebraic_type, 0),
                                     vec![],
                                     42.0
@@ -842,11 +822,11 @@ mod tests {
         }
     }
 
-    mod constructor_applications {
+    mod record_constructions {
         use super::*;
 
         #[test]
-        fn check_constructor_applications_with_no_arguments() {
+        fn check_record_constructions_with_no_arguments() {
             let algebraic_type = types::Algebraic::new(vec![types::Constructor::boxed(vec![])]);
 
             assert_eq!(
@@ -858,7 +838,7 @@ mod tests {
                         "f",
                         vec![],
                         vec![Argument::new("x", types::Primitive::Float64)],
-                        ConstructorApplication::new(
+                        RecordConstruction::new(
                             Constructor::new(algebraic_type.clone(), 0),
                             vec![],
                         ),
@@ -870,7 +850,7 @@ mod tests {
         }
 
         #[test]
-        fn check_constructor_applications_with_arguments() {
+        fn check_record_constructions_with_arguments() {
             let algebraic_type = types::Algebraic::new(vec![types::Constructor::boxed(vec![
                 types::Primitive::Float64.into(),
             ])]);
@@ -884,7 +864,7 @@ mod tests {
                         "f",
                         vec![],
                         vec![Argument::new("x", types::Primitive::Float64)],
-                        ConstructorApplication::new(
+                        RecordConstruction::new(
                             Constructor::new(algebraic_type.clone(), 0),
                             vec![42.0.into()],
                         ),
@@ -896,7 +876,7 @@ mod tests {
         }
 
         #[test]
-        fn fail_to_check_constructor_applications_with_wrong_number_of_arguments() {
+        fn fail_to_check_record_constructions_with_wrong_number_of_arguments() {
             let algebraic_type = types::Algebraic::new(vec![types::Constructor::boxed(vec![
                 types::Primitive::Float64.into(),
             ])]);
@@ -908,7 +888,7 @@ mod tests {
                     "f",
                     vec![],
                     vec![Argument::new("x", types::Primitive::Float64)],
-                    ConstructorApplication::new(
+                    RecordConstruction::new(
                         Constructor::new(algebraic_type.clone(), 0),
                         vec![42.0.into(), 42.0.into()],
                     ),
@@ -923,7 +903,7 @@ mod tests {
         }
 
         #[test]
-        fn fail_to_check_constructor_applications_with_wrong_argument_type() {
+        fn fail_to_check_record_constructions_with_wrong_argument_type() {
             let algebraic_type = types::Algebraic::new(vec![types::Constructor::boxed(vec![
                 types::Primitive::Float64.into(),
             ])]);
@@ -935,9 +915,9 @@ mod tests {
                     "f",
                     vec![],
                     vec![Argument::new("x", types::Primitive::Float64)],
-                    ConstructorApplication::new(
+                    RecordConstruction::new(
                         Constructor::new(algebraic_type.clone(), 0),
-                        vec![ConstructorApplication::new(
+                        vec![RecordConstruction::new(
                             Constructor::new(algebraic_type.clone(), 0),
                             vec![42.0.into()],
                         )
@@ -954,7 +934,7 @@ mod tests {
         }
 
         #[test]
-        fn check_constructor_applications_of_recursive_algebraic_types() {
+        fn check_record_constructions_of_recursive_algebraic_types() {
             let algebraic_type =
                 types::Algebraic::new(vec![types::Constructor::boxed(vec![Type::Index(0)])]);
 
@@ -966,7 +946,7 @@ mod tests {
                     vec![Definition::new(
                         "f",
                         vec![Argument::new("x", algebraic_type.clone())],
-                        ConstructorApplication::new(
+                        RecordConstruction::new(
                             Constructor::new(algebraic_type.clone(), 0),
                             vec![Variable::new("x").into()],
                         ),

@@ -1,21 +1,20 @@
 use crate::types::*;
 
 pub struct TypeUnfolder {
-    algebraic_type: Algebraic,
+    record: Record,
     index: usize,
 }
 
 impl TypeUnfolder {
-    pub fn new(algebraic_type: &Algebraic) -> Self {
+    pub fn new(record: &Record) -> Self {
         Self {
-            algebraic_type: algebraic_type.clone(),
+            record: record.clone(),
             index: 0,
         }
     }
 
     pub fn unfold(&self, type_: &Type) -> Type {
         match type_ {
-            Type::Algebraic(algebraic) => self.unfold_algebraic(algebraic).into(),
             Type::Function(function) => Function::new(
                 self.unfold(function.argument()),
                 self.unfold(function.result()),
@@ -23,42 +22,32 @@ impl TypeUnfolder {
             .into(),
             Type::Index(index) => {
                 if *index == self.index {
-                    self.algebraic_type.clone().into()
+                    self.record.clone().into()
                 } else {
                     Type::Index(*index)
                 }
             }
-            Type::Primitive(_) => type_.clone(),
+            Type::Record(record) => self.unfold_record(record).into(),
+            Type::Primitive(_) | Type::Variant => type_.clone(),
         }
     }
 
-    fn unfold_algebraic(&self, algebraic: &Algebraic) -> Algebraic {
+    fn unfold_record(&self, record: &Record) -> Record {
         let other = self.increment_index();
 
-        Algebraic::with_tags(
-            algebraic
-                .constructors()
+        Record::new(
+            record
+                .elements()
                 .iter()
-                .map(|(tag, constructor)| {
-                    (
-                        *tag,
-                        Constructor::new(
-                            constructor
-                                .elements()
-                                .iter()
-                                .map(|type_| other.unfold(type_))
-                                .collect(),
-                            constructor.is_boxed(),
-                        ),
-                    )
-                })
+                .map(|type_| other.unfold(type_))
                 .collect(),
+            record.is_boxed(),
         )
     }
 
     fn increment_index(&self) -> Self {
         Self {
-            algebraic_type: self.algebraic_type.clone(),
+            record: self.record.clone(),
             index: self.index + 1,
         }
     }
